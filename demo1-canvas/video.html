@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>视频首帧/图片水印</title>
+  <style>
+   *{margin:0;padding:0}.container{padding:20px 40px}button{width:80px;height:40px;line-height:40px;font-size:14px;text-align:center;color:#fff;background-color:#409eff;border:1px solid #409eff;outline:none;cursor:pointer}h4{margin-bottom:4px;font-size:16px}.cover{width:400px;margin:0 auto}.video-url{margin-bottom:4px;font-size:0;vertical-align:middle}#info{font-size:14px;color:red}input{border:1px solid #409eff;outline:none;line-height:30px;font-size:14px;padding:4px 10px;width:300px}#img{width:100%;display:block;visibility:hidden}.result-img{margin-top:10px}.line{height: 1px;background: #eee;width: 100%;margin:20px 0}.downa,.downb{margin-top:10px}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h4>选择要添加水印的图片:</h4>
+    <button id="btns">选择</button>
+    <div class="result"></div>
+    <button class="downa">下载到本地</button>
+    <div class="line"></div>
+    <h4>填入要截取视频地址:</h4>
+    <div class="video-url"><input type="text" value="https://cdn.huodao.hk/zhaoliangjiadv2.mp4" /><button
+        style="margin:0 10px" id="initVideo">初始化</button><span id="info"></span></div>
+    <button id="capture">获取第一秒</button>
+    <button id="next">获取下一秒</button>
+    <div class="result-img"></div>
+    <button class="downb">下载到本地</button>
+  </div>
+  <script>
+    /*
+          @ desc bolb对象转image
+          */
+    function blobToImg(blob) {
+      return new Promise((resolve, reject) => {
+        let reader = new FileReader()
+        reader.addEventListener('load', () => {
+          let img = new Image()
+          img.src = reader.result
+          img.addEventListener('load', () => resolve(img))
+        })
+        reader.readAsDataURL(blob)
+      })
+    }
+    /*
+    @ desc domObj转canvas
+    */
+    function imgToCanvas({
+      obj,
+      width,
+      height
+    }) {
+      const canvas = document.createElement('canvas');
+      canvas.setAttribute('width', width);
+      canvas.setAttribute('height', height);
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(obj, 0, 0)
+      return canvas
+    }
+    /*
+    @ desc base64转Bolb对象
+    */
+    function base64ToBlob(code){
+      let parts = code.split(";base64,");
+      // 获取图片类型
+      let contentType = parts[0].split(":")[1];
+      /**
+      * 解码base64
+      * Window atob() 方法
+      * encodedStr: 必需，是一个通过 btoa() 方法编码的字符串。
+      * 该方法返回一个解码的字符串。
+      */
+      let raw = window.atob(parts[1]);
+      let rawLength = raw.length;
+      const uInt8Array= new Uint8Array(rawLength)
+      // 将字符转换成unicode值
+      for (let i = 0; i < rawLength; ++i) {
+        uInt8Array[i] = raw.charCodeAt(i);
+      }
+      return new Blob([uInt8Array], {type : contentType});
+      }
+      // Canvas获取视频封面与添加水印
+    /*
+    @ desc 生成水印
+    */
+    function watermark(canvas, text) {
+      return new Promise((resolve, reject) => {
+        const ctx = canvas.getContext('2d')
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle',
+        ctx.font = "14px Microsoft Yahei",
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)',
+        ctx.fillText(text, canvas.width - 20, canvas.height - 20);
+        canvas.toBlob(blob => resolve(blob))
+        // 此处也可以直接通过canvas输出base64: canvas.toDataURL('image/png', '0.5');
+      })
+    }
+
+    function downFile(code){
+      const fileName = Date.now();
+        if (!code) {
+        alert("base64不能为空");
+        return;
+        }
+        let aLink = document.createElement("a");
+        let blob = base64ToBlob(code);
+        let evt = document.createEvent("HTMLEvents");
+        evt.initEvent("click", true, true); //initEvent 不加后两个参数在FF下会报错  事件类型，是否冒泡，是否阻止浏览器的默认行为
+        aLink.download = fileName;
+        aLink.href = URL.createObjectURL(blob);
+        aLink.click();
+    }
+    // 入口函数
+    function imgWatermark(dom, text) {
+      let input = document.createElement('input')
+      input.setAttribute('type', 'file')
+      input.setAttribute('accept', 'image/*')
+      input.onchange = async () => {
+        let img = await blobToImg(input.files[0])
+        let canvas = imgToCanvas({
+          obj: img,
+          width: img.width,
+          height: img.height
+        })
+        let blob = await watermark(canvas, text)
+        // 此处将Blob读取到img标签，并在dom内渲染出来；如果是上传文件，可以将blob添加到FormData中
+        let newImage = await blobToImg(blob)
+        dom.appendChild(newImage)
+      }
+      input.click()
+    }
+    // 水印功能绑定
+    document.querySelector("#btns").addEventListener('click', function () {
+      imgWatermark(document.querySelector(".result"), '@watermark')
+    })
+    /*
+    @ desc 初始化视频对象，监听事件变化
+    */
+    function initVideo(url, callback) {
+      const video = document.createElement('video')
+      video.src = url;
+      video.controls = true;
+      video.crossOrigin = "Anonymous";
+      video.addEventListener("timeupdate", () => {
+        const imgBase64 = getVideoCapture(video);
+        callback && callback(imgBase64)
+      })
+      return video
+    }
+    /*
+    @ desc 获取video对象对应帧率base64
+    */
+    function getVideoCapture(video){
+      let canvas = imgToCanvas({
+          obj: video,
+          width: video.videoWidth,
+          height: video.videoHeight
+        })
+      return canvas.toDataURL('image/png', '0.5');
+    }
+    /*
+    @ desc 展示截图及相关时间进度
+    */
+    function showCapture(imgBase64) {
+      const info = document.querySelector("#info")
+      info.innerHTML = `当前：${video.currentTime}s 时长：${video.duration}s`
+      document.querySelector(".result-img").innerHTML = `<img src="${imgBase64}" />`
+    }
+    // 事件绑定
+    const inputUrl = document.querySelector(".video-url input")
+    const btnInit = document.querySelector("#initVideo")
+    const btnCapture = document.querySelector("#capture")
+    const btnNext = document.querySelector("#next")
+    let video = null;
+    btnInit.addEventListener('click', async () => {
+      const url = inputUrl.value;
+      if (!url) return alert("视频链接不能为空")
+      if (!video) video = initVideo(url, showCapture)
+      alert("初始化完毕")
+    })
+    btnCapture.addEventListener('click', async () => {
+      if (!video) return alert("请先初始化")
+      video.currentTime = 1;
+    })
+    btnNext.addEventListener('click', () => {
+      if (!video) return alert("请先初始化")
+      if (video.currentTime + 1 > video.duration) return alert("超出时长！")
+      video.currentTime = video.currentTime + 1;
+    })
+    document.querySelector(".downa").addEventListener('click',function(){
+      const img=document.querySelector(".result img")
+      if(!img) return alert('图片为空')
+      const code=img.getAttribute('src')
+      downFile(code)
+    })
+    document.querySelector(".downb").addEventListener('click',function(){
+      const img=document.querySelector(".result-img img")
+      if(!img) return alert('图片为空')
+      const code=img.getAttribute('src')
+      downFile(code)
+    })
+  </script>
+</body>
+
+</html>
